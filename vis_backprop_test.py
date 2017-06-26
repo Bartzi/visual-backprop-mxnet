@@ -12,7 +12,7 @@ from insights.iter_visualisation import VisualBackpropPlotter
 from insights.visual_backprop import build_visual_backprop_symbol
 
 
-def parse_args():
+def create_parser():
     parser = argparse.ArgumentParser(description='train an image classifer on mnist')
     parser.add_argument('--gpus', type=str,
                         help='the gpus will be used, e.g "0,1,2,3"')
@@ -95,16 +95,19 @@ def get_symbol(num_classes=10, **kwargs):
     data = mx.symbol.Variable('data')
 
     # first conv
-    conv1 = mx.symbol.Convolution(data=data, kernel=(5,5), num_filter=20)
+    conv1 = mx.symbol.Convolution(data=data, kernel=(5, 5), num_filter=20)
     tanh1 = mx.symbol.Activation(data=conv1, act_type="relu")
     pool1 = mx.symbol.Pooling(data=tanh1, pool_type="max",
-                              kernel=(2,2), stride=(2,2))
+                              kernel=(2, 2), stride=(2, 2))
     # second conv
-    conv2 = mx.symbol.Convolution(data=pool1, kernel=(5,5), num_filter=50)
+    conv2 = mx.symbol.Convolution(data=pool1, kernel=(5, 5), num_filter=50)
     tanh2 = mx.symbol.Activation(data=conv2, act_type="relu")
+
+    # create visual backprop anchor
     vis = build_visual_backprop_symbol(tanh2)
+
     pool2 = mx.symbol.Pooling(data=tanh2, pool_type="max",
-                              kernel=(2,2), stride=(2,2))
+                              kernel=(2, 2), stride=(2, 2))
     # first fullc
     flatten = mx.symbol.Flatten(data=pool2)
     fc1 = mx.symbol.FullyConnected(data=flatten, num_hidden=500)
@@ -133,18 +136,21 @@ def init_logging(args, kv):
 
 
 if __name__ == "__main__":
-    parser = parse_args()
+    parser = create_parser()
     args = parser.parse_args()
 
+    kv = mx.kvstore.create(args.kv_store)
+    init_logging(args, kv)
+
+    # create symbol and save visualization anchor
     net, vis = get_symbol()
+    # group symbol for visualization pass
     group = mx.symbol.Group([net, vis])
 
-    kv = mx.kvstore.create(args.kv_store)
     train_data, val_data = get_mnist_iter(args, kv)
+    context = mx.cpu() if args.gpus is None else [mx.gpu(int(i)) for i in args.gpus.split(',')]
 
-    init_logging(args, kv)
-    context = mx.gpu()
-
+    # create training module
     model = mx.mod.Module(
         context=mx.gpu(),
         symbol=net
@@ -154,13 +160,17 @@ if __name__ == "__main__":
 
     batch_end_callbacks = [mx.callback.Speedometer(args.batch_size, 50)]
 
-    plotter = VisualBackpropPlotter(upstream_ip=args.ip, upstream_port=args.port)
+    # take the first image of the validation dataset as example image for VisualBackProp
     first_batch = next(val_data)
     val_data.hard_reset()
+
+    # build plotter and add it to all batch end callbacks
+    plotter = VisualBackpropPlotter(upstream_ip=args.ip, upstream_port=args.port)
     batch_end_callbacks.append(
         plotter.get_callback(group, first_batch.data[0][0].asnumpy(), first_batch.label[0][0].asnumpy(), context, model)
     )
 
+    # start the training
     model.fit(
         train_data,
         begin_epoch=0,
