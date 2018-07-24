@@ -3,6 +3,14 @@ import json
 import mxnet as mx
 
 
+def normalize_feature_map(a_feature_map):
+    min_value = mx.symbol.min(a_feature_map)
+    max_value = mx.symbol.max(a_feature_map)
+    a_feature_map = mx.symbol.broadcast_sub(a_feature_map, min_value)
+    a_feature_map = mx.symbol.broadcast_mul(a_feature_map, 1.0 / (max_value - min_value))
+    return a_feature_map
+
+
 def string_to_tuple(string):
     return string.strip('(').strip(')').split(',')
 
@@ -11,23 +19,16 @@ def combine_feature_maps(intermediate_symbols, node, nodes, scaled_feature):
     data_input_node = nodes[node['inputs'][0][0]]
     try:
         data_input_symbol = intermediate_symbols["{}_output".format(data_input_node['name'])]
-#    except ValueError:
-#        data_input_symbol = intermediate_symbols[data_input_node['name']]
     except ValueError:
         try:
             data_input_symbol = intermediate_symbols[data_input_node['name']]
         except ValueError:
             data_input_symbol = intermediate_symbols["{}_output0".format(data_input_node['name'])] # MY looks like lrn has output0
 
-
     averaged_feature_map = mx.symbol.mean(data_input_symbol, axis=1, keepdims=True)
 	
-    # MY normalization test- by bojarski comment from 16/11/17 on https://github.com/mbojarski/VisualBackProp/issues/1
-    min_value = mx.symbol.min(averaged_feature_map)
-    max_value = mx.symbol.max(averaged_feature_map)
-    averaged_feature_map = mx.symbol.broadcast_sub(averaged_feature_map, min_value)
-    averaged_feature_map = mx.symbol.broadcast_mul(averaged_feature_map, 1.0 / (max_value - min_value))
-    # end MY normalization test
+    # MY by bojarski comment from 16/11/17 on https://github.com/mbojarski/VisualBackProp/issues/1
+    averaged_feature_map = normalize_feature_map(averaged_feature_map)
 
     fixed_scaled_feature = mx.symbol.Crop(scaled_feature, averaged_feature_map)
 
@@ -45,16 +46,12 @@ def build_visual_backprop_symbol(start_symbol, input_name=None):
 
     feature_map = mx.symbol.mean(start_symbol, axis=1, keepdims=True)
 
-    # MY normalization test- by bojarski comment from 16/11/17 on https://github.com/mbojarski/VisualBackProp/issues/1
-    min_value = mx.symbol.min(feature_map)
-    max_value = mx.symbol.max(feature_map)
-    feature_map = mx.symbol.broadcast_sub(feature_map, min_value)
-    feature_map = mx.symbol.broadcast_mul(feature_map, 1.0 / (max_value - min_value))
-    # end MY normalization test
+    # MY by bojarski comment from 16/11/17 on https://github.com/mbojarski/VisualBackProp/issues/1
+    feature_map = normalize_feature_map(feature_map)
 
     for node in reversed(nodes):
         if input_name is not None and node['name'] == input_name or node['name'] == 'data':
-            breakPagey
+            break
 
         node_attrs = node.get('attrs', None) # MY was 'attr' until around mxnet 1.0
         if node['op'] == 'Convolution':
@@ -74,7 +71,6 @@ def build_visual_backprop_symbol(start_symbol, input_name=None):
             feature_map = combine_feature_maps(intermediate_symbols, node, nodes, scaled_feature)
         elif node['op'] == 'Pooling':
             kernel_height, kernel_width = map(int, string_to_tuple(node_attrs['kernel']))
-            #MY stride_height, stride_width = map(int, string_to_tuple(node_attrs['stride']))
             stride_height, stride_width = map(int, string_to_tuple(
                 node_attrs.get('stride', '(1, 1)')))  # MY need default- theoretically could be pooling without stride..
             scaled_feature = mx.symbol.Deconvolution(
@@ -90,9 +86,6 @@ def build_visual_backprop_symbol(start_symbol, input_name=None):
         else:
             continue
 
-    # normalize feature map - (MY this isn't usually really necessary if we normalize in combine_feature_maps, but shouldn't hurt)
-    min_value = mx.symbol.min(feature_map)
-    max_value = mx.symbol.max(feature_map)
-    feature_map = mx.symbol.broadcast_sub(feature_map, min_value)
-    feature_map = mx.symbol.broadcast_mul(feature_map, 1.0 / (max_value - min_value))
+    # normalize feature map
+    feature_map = normalize_feature_map(feature_map)
     return feature_map
