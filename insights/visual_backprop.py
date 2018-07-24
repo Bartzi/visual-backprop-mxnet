@@ -57,14 +57,14 @@ def build_visual_backprop_symbol(start_symbol, input_name=None):
         if node['op'] == 'Convolution':
             kernel_height, kernel_width = map(int, string_to_tuple(node_attrs['kernel']))
             stride_height, stride_width = map(int, string_to_tuple(
-                node_attrs.get('stride', '(1, 1)')))  # MY added for stride in convolution
+                node_attrs.get('stride', '(1, 1)')))  # MY for stride in convolution
             pad_height, pad_width = map(int, string_to_tuple(node_attrs.get('pad', '(0, 0)')))
             scaled_feature = mx.symbol.Deconvolution(
                 data=feature_map,
                 weight=mx.symbol.ones((1, 1, kernel_height, kernel_width)),
                 kernel=(kernel_height, kernel_width),
                 pad=(pad_height, pad_width),
-                stride=(stride_height, stride_width),  # MY added this- was missing???
+                stride=(stride_height, stride_width),  
                 adj=(stride_height - 1, stride_width - 1),
                 num_filter=1
             )
@@ -72,7 +72,7 @@ def build_visual_backprop_symbol(start_symbol, input_name=None):
         elif node['op'] == 'Pooling':
             kernel_height, kernel_width = map(int, string_to_tuple(node_attrs['kernel']))
             stride_height, stride_width = map(int, string_to_tuple(
-                node_attrs.get('stride', '(1, 1)')))  # MY need default- theoretically could be pooling without stride..
+                node_attrs.get('stride', '(1, 1)')))  # MY needs default- theoretically could be pooling without stride..
             scaled_feature = mx.symbol.Deconvolution(
                 data=feature_map,
                 weight=mx.symbol.ones((1, 1, kernel_height, kernel_width)),
